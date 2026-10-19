@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.sparse import csc_array
+from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -25,8 +27,11 @@ def forcing(t):
     return -a * omega**2 * np.cos(omega * t)
 
 
-def residual(theta, t=np.linspace(0, T, N + 1)):
-    r = np.zeros(N + 1)
+def residual(theta, *, t=t, theta_0=theta_0, omega_0=omega_0):
+    assert len(t) == len(theta)
+
+    N = len(theta) - 1
+    r = np.zeros_like(theta)
 
     a = (theta[0 : N - 1] - 2 * theta[1:N] + theta[2 : N + 1]) / h**2
     v = (theta[2 : N + 1] - theta[0 : N - 1]) / (2 * h)
@@ -35,51 +40,99 @@ def residual(theta, t=np.linspace(0, T, N + 1)):
 
     r[0] = theta[0] - theta_0
     r[1] = l * (theta[1] - theta[0]) / h - l * omega_0 + 0.5 * h * a_0
-    # r[2] = (theta[0] - 2 * theta[1] + theta[2]) / h**2 + g / l * np.sin(theta[1])
     r[2 : N + 1] = l * a + nu * v + g * np.sin(theta[1:N]) + f[1:N] * np.cos(theta[1:N])
 
     return r
 
 
-def jacobian(theta, t=np.linspace(0, T, N + 1)):
+def jacobian(theta, *, t=t):
     # dr / dtheta
 
+    assert len(t) == len(theta)
+
+    N = len(theta) - 1
     f = forcing(t)
 
-    J = np.zeros((N + 1, N + 1))
-
-    J[0, 0] = 1.0
-    J[1, 0] = -l / h
-    J[1, 1] = l / h
-
+    # J[0, 0] = 1.0
+    # J[1, 0] = -l / h
+    # J[1, 1] = l / h
     # J[2, 0] = 1.0 / h**2
     # J[2, 1] = -2.0 / h**2 + g / l * np.cos(theta[1])
     # J[2, 2] = 1.0 / h**2
+    # etc.
+
+    r = np.arange(2, N + 1)
+    row_idx = np.concatenate([[0, 1, 1], np.repeat(r, 3)])
+    col_idx = np.concatenate([[0, 0, 1], np.stack([r - 2, r - 1, r]).T.flatten()])
+    values = np.zeros(3 * N)
+    values[:3] = [1.0, -l / h, l / h]
 
     for i in range(2, N + 1):
-        J[i, i - 2] = l / h**2 - nu / (2 * h)
-        J[i, i - 1] = -2.0 * l / h**2 + g * np.cos(theta[i - 1]) - f[i - 1] * np.sin(theta[i - 1])
-        J[i, i] = l / h**2 + nu / (2 * h)
 
-    return J
+        values[3 * i - 3] = l / h**2 - nu / (2 * h)
+        values[3 * i - 2] = (
+            -2.0 * l / h**2 + g * np.cos(theta[i - 1]) - f[i - 1] * np.sin(theta[i - 1])
+        )
+        values[3 * i - 1] = l / h**2 + nu / (2 * h)
+
+    return csc_array((values, (row_idx, col_idx)), shape=(N + 1, N + 1))
 
 
-theta = theta_0 * np.ones(N + 1)
+def newton_raphson(*, theta_init=None, t=t, theta_0=theta_0, omega_0=omega_0):
+    if theta_init is None:
+        theta = np.zeros_like(t)
+    else:
+        theta = theta_init
 
-for it in range(100):
-    r = residual(theta)
+    assert len(t) == len(theta)
 
-    print(np.linalg.norm(r))
+    for it in range(100):
+        r = residual(theta, t=t, theta_0=theta_0, omega_0=omega_0)
 
-    if np.linalg.norm(r) < tol * N:
-        break
+        print(np.linalg.norm(r))
 
-    theta += np.linalg.solve(jacobian(theta), -r)
-else:
-    raise RuntimeError("NOT CONVERGED!")
+        if np.linalg.norm(r) < tol * N:
+            break
+
+        # theta += np.linalg.solve(jacobian(theta, t=t), -r)
+        theta += spsolve(jacobian(theta, t=t), -r)
+    else:
+        raise RuntimeError("NOT CONVERGED!")
+
+    return theta
+
+
+N_chunk = int(1 / h)
+
+ts = []
+thetas = []
+theta_full = np.zeros(N + 1)
+
+for i in range(int(T)):
+    if len(thetas) == 0:
+        theta_init = theta_0
+        omega_init = omega_0
+    else:
+        theta_init = thetas[-1][-1]
+        omega_init = (thetas[-1][-1] - thetas[-1][-2]) / h
+
+    idx = (i * N_chunk, (i + 1) * N_chunk + 1)
+    t_chunk = t[idx[0] : idx[1]]
+    theta_chunk = newton_raphson(t=t_chunk, theta_0=theta_init, omega_0=omega_init)
+
+    ts.append(t_chunk)
+    thetas.append(theta_chunk)
+    theta_full[idx[0] : idx[1]] = theta_chunk
+
+theta = newton_raphson(theta_init=theta_full)
 
 plt.figure()
-plt.plot(np.linspace(0, T, N + 1), theta)
+for t_chunk, theta_chunk in zip(ts, thetas):
+    plt.plot(t_chunk, theta_chunk)
+plt.show()
+
+plt.figure()
+plt.plot(t, theta)
 plt.show()
 
 
