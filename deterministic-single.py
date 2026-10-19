@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 theta_0 = 0.0 * np.pi
 omega_0 = 0.0
@@ -10,9 +11,10 @@ a = 0.8
 omega = 3.0
 T = 30.0
 l = 1.0
-N = 1000
-h = T / N
-tol = 1e-8
+h = 0.100
+N = int(T / h)
+tol = 1e-10
+t = np.linspace(0, T, N + 1)
 
 
 def pivot(t):
@@ -74,8 +76,53 @@ for it in range(100):
 
     theta += np.linalg.solve(jacobian(theta), -r)
 else:
-    print("NOT CONVERGED!")
+    raise RuntimeError("NOT CONVERGED!")
 
 plt.figure()
 plt.plot(np.linspace(0, T, N + 1), theta)
+plt.show()
+
+
+fps = min(50, int(1 / h))
+frames = int(T * fps)
+
+from matplotlib.patches import Circle
+
+fig, ax = plt.subplots(layout="tight")
+
+x_pivot = pivot(t[0])
+y_pivot = 0.0
+x_mass = x_pivot + l * np.sin(theta[0])
+y_mass = y_pivot - l * np.cos(theta[0])
+
+scat = ax.scatter(x_pivot, y_pivot, c="k", marker="o")
+line = ax.plot([x_pivot, x_mass], [y_pivot, y_mass], c="k")[0]
+patch = ax.add_patch(Circle([x_mass, y_mass], 0.15, ec="k", fc="0.5", zorder=2))
+
+ax.set_xlim([-2.0, 2.0])
+ax.set_ylim([-2.0, 2.0])
+ax.set_xticks([-2, -1, 0, 1, 2])
+ax.set_yticks([-2, -1, 0, 1, 2])
+ax.set_aspect("equal")
+
+
+def update(frame):
+    idx = np.sum(t < frame / fps)
+    x_pivot = pivot(t[idx])
+    y_pivot = 0.0
+    x_mass = x_pivot + l * np.sin(theta[idx])
+    y_mass = y_pivot - l * np.cos(theta[idx])
+
+    scat.set_offsets([pivot(t[idx]), 0.0])
+    line.set_xdata([x_pivot, x_mass])
+    line.set_ydata([y_pivot, y_mass])
+    patch.center = [x_mass, y_mass]
+
+    return scat, line, patch
+
+
+ani = animation.FuncAnimation(fig=fig, func=update, frames=frames, interval=1000.0 / fps)
+fname = "pendulum_a-{:.3f}_omega-{:.3f}_h-{:.3f}.mp4".format(a, omega, h)
+ani.save(filename=fname, writer="ffmpeg")
+
 plt.show()
