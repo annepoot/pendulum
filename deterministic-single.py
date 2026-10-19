@@ -6,6 +6,8 @@ omega_0 = 0.0
 
 g = 9.81
 nu = 0.01
+a = 0.8
+omega = 3.0
 T = 30.0
 l = 1.0
 N = 1000
@@ -13,12 +15,11 @@ h = T / N
 tol = 1e-8
 
 
+def pivot(t):
+    return a * np.cos(omega * t)
+
+
 def forcing(t):
-    # return 0.0
-
-    a = 0.5
-    omega = 3.0
-
     return -a * omega**2 * np.cos(omega * t)
 
 
@@ -26,14 +27,14 @@ def residual(theta, t=np.linspace(0, T, N + 1)):
     r = np.zeros(N + 1)
 
     a = (theta[0 : N - 1] - 2 * theta[1:N] + theta[2 : N + 1]) / h**2
-    omega = (theta[2 : N + 1] - theta[0 : N - 1]) / (2 * h)
+    v = (theta[2 : N + 1] - theta[0 : N - 1]) / (2 * h)
     f = forcing(t)
     a_0 = g * np.sin(theta_0) + nu * omega_0 + f[0] * np.cos(theta_0)
 
     r[0] = theta[0] - theta_0
     r[1] = l * (theta[1] - theta[0]) / h - l * omega_0 + 0.5 * h * a_0
     # r[2] = (theta[0] - 2 * theta[1] + theta[2]) / h**2 + g / l * np.sin(theta[1])
-    r[2 : N + 1] = l * a + nu * omega + g * np.sin(theta[1:N]) + f[1:N] * np.cos(theta[1:N])
+    r[2 : N + 1] = l * a + nu * v + g * np.sin(theta[1:N]) + f[1:N] * np.cos(theta[1:N])
 
     return r
 
